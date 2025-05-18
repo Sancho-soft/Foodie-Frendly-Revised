@@ -23,6 +23,12 @@ class RiderDashboardController extends Controller
                              ->with('orderItems.food')
                              ->first();
 
+        // Pending Orders
+        $pendingOrders = Order::where('status', 'pending')
+                              ->whereNull('rider_id')
+                              ->with('orderItems.food')
+                              ->get();
+
         // Total Deliveries
         $totalDeliveries = Order::where('rider_id', $rider->id)
                                 ->where('status', 'delivered')
@@ -32,12 +38,22 @@ class RiderDashboardController extends Controller
         $deliveredOrders = Order::where('rider_id', $rider->id)
                                 ->where('status', 'delivered')
                                 ->get();
-        $totalEarnings = $deliveredOrders->sum('delivery_fee'); // Sum delivery_fee for all orders
+        $totalEarnings = $deliveredOrders->sum('delivery_fee');
 
-        // Calculate total for current order
+        // Calculate totals
         $currentOrderTotal = $currentOrder ? $this->calculateOrderTotal($currentOrder) : 0;
+        $pendingOrderTotals = $pendingOrders->mapWithKeys(function ($order) {
+            return [$order->id => $this->calculateOrderTotal($order)];
+        })->toArray();
 
-        return view('rider.index', compact('currentOrder', 'totalDeliveries', 'totalEarnings', 'currentOrderTotal'));
+        return view('rider.index', compact(
+            'currentOrder',
+            'pendingOrders',
+            'totalDeliveries',
+            'totalEarnings',
+            'currentOrderTotal',
+            'pendingOrderTotals'
+        ));
     }
 
     protected function calculateOrderTotal($order)
@@ -189,14 +205,27 @@ class RiderDashboardController extends Controller
         if (Auth::check() && Auth::user()->role !== 'rider') {
             abort(403, 'Unauthorized action.');
         }
-        if ($order->status !== 'delivering' || $order->rider_id !== Auth::user()->rider->id) {
-            return redirect()->route('rider.index')->with('error', 'You cannot finish this order.');
+        
+        $rider = Auth::user()->rider;
+        
+        if ($order->status !== 'delivering' || $order->rider_id !== $rider->id) {
+            return redirect()->route('rider.orders')->with('error', 'You cannot finish this order.');
         }
 
-        $order->update([
-            'status' => 'delivered',
-        ]);
+        try {
+            DB::beginTransaction();
+            
+            $order->update([
+                'status' => 'delivered',
+                'payment_status' => 'completed'
+            ]);
 
-        return redirect()->route('rider.index')->with('success', 'Order delivered successfully!');
+            DB::commit();
+            return redirect()->route('rider.orders')->with('success', 'Order delivered successfully!');
+            
+        } catch (\Exception $e) {
+            DB::rollback();
+            return redirect()->route('rider.orders')->with('error', 'Failed to complete delivery. Please try again.');
+        }
     }
 }
