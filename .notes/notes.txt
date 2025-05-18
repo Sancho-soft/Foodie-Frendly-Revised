@@ -1,0 +1,15 @@
+composer require laravel/breeze --dev
+php artisan breeze:install
+
+
+
+
+php artisan cache:clear        # Clear application cache
+php artisan config:clear       # Clear configuration cache
+php artisan route:clear        # Clear route cache
+php artisan view:clear         # Clear compiled views cache
+php artisan event:clear        # Clear event cache
+
+php artisan optimize:clear
+
+
